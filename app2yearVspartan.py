@@ -205,9 +205,8 @@ def style_dataframe(df):
 
 # --- STREAMLIT UI ---
 st.set_page_config(page_title="NSE Tracker", layout="wide")
-st.title("📊 VSPARTANS 2-Year Historical Tracker")
 
-# Hardcoded default client name
+# Hardcoded client name configuration
 client_name = "VSPARTANS"
 
 if st.button("Fetch Data", type="primary"):
