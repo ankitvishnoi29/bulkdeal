@@ -13,7 +13,7 @@ except ImportError:
     st.error("nselib is not installed. Check your requirements.txt")
     st.stop()
 
-# --- EXCEL FORMATTING ---
+# --- EXCEL FORMATTING (For Downloads) ---
 def format_excel_sheet(ws, df_sheet, title_text, default_days_or_info):
     font_family = "Segoe UI"
     title_font = Font(name=font_family, size=15, bold=True, color="1B365D")
@@ -181,6 +181,30 @@ def get_excel_buffer(df_bulk, df_block, title_prefix, sub_title):
     buffer.seek(0)
     return buffer
 
+# --- STREAMLIT UI STYLING FUNCTION ---
+def style_dataframe(df):
+    """Applies green to BUY and red to SELL, and formats numbers for web UI."""
+    def color_buy_sell(val):
+        val_str = str(val).strip().upper()
+        if val_str == 'BUY':
+            return 'color: #006100; background-color: #C6EFCE; font-weight: bold;'
+        elif val_str == 'SELL':
+            return 'color: #9C0006; background-color: #FFC7CE; font-weight: bold;'
+        return ''
+
+    # Handle pandas version compatibility for styling
+    styler = df.style
+    if hasattr(styler, 'map'):
+        styler = styler.map(color_buy_sell, subset=['Buy/Sell'])
+    else:
+        styler = styler.applymap(color_buy_sell, subset=['Buy/Sell'])
+        
+    return styler.format({
+        'QuantityTraded': '{:,}',
+        'TradePrice/Wght.Avg.Price': '₹{:,.2f}',
+        'TradeValue_INR': '₹{:,.2f}'
+    })
+
 # --- STREAMLIT UI ---
 st.set_page_config(page_title="NSE Tracker", layout="wide")
 st.title("📊 Client 2-Year Historical Tracker")
@@ -218,7 +242,7 @@ if st.button("Fetch Data", type="primary"):
         except Exception as e:
             st.warning(f"Bulk data warning for {from_str}: {e}")
             
-        time.sleep(1) # Reduced to 1 second to prevent Streamlit Cloud timeout
+        time.sleep(1) # Reduced to prevent timeout
         
         try:
             df_bl = capital_market.block_deals_data(from_date=from_str, to_date=to_str)
@@ -247,13 +271,14 @@ if st.button("Fetch Data", type="primary"):
         total_trades = len(df_bulk_merged) + len(df_block_merged)
         st.success(f"✅ Success! Found {total_trades} trades for '{client_name.upper()}'")
         
+        # Displaying styled dataframes
         if not df_bulk_merged.empty:
             st.subheader("Bulk Deals")
-            st.dataframe(df_bulk_merged, use_container_width=True)
+            st.dataframe(style_dataframe(df_bulk_merged), use_container_width=True, hide_index=True)
             
         if not df_block_merged.empty:
             st.subheader("Block Deals")
-            st.dataframe(df_block_merged, use_container_width=True)
+            st.dataframe(style_dataframe(df_block_merged), use_container_width=True, hide_index=True)
         
         sanitized_name = "".join([c for c in client_name if c.isalnum() or c in (' ', '_')]).strip().replace(' ', '_')
         file_name = f"{sanitized_name}_2_Years.xlsx"
