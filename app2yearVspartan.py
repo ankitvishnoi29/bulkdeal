@@ -183,7 +183,6 @@ def get_excel_buffer(df_bulk, df_block, title_prefix, sub_title):
 
 # --- STREAMLIT UI STYLING FUNCTION ---
 def style_dataframe(df):
-    """Applies green to BUY and red to SELL, and formats numbers for web UI."""
     def color_buy_sell(val):
         val_str = str(val).strip().upper()
         if val_str == 'BUY':
@@ -192,7 +191,6 @@ def style_dataframe(df):
             return 'color: #9C0006; background-color: #FFC7CE; font-weight: bold;'
         return ''
 
-    # Handle pandas version compatibility for styling
     styler = df.style
     if hasattr(styler, 'map'):
         styler = styler.map(color_buy_sell, subset=['Buy/Sell'])
@@ -207,15 +205,12 @@ def style_dataframe(df):
 
 # --- STREAMLIT UI ---
 st.set_page_config(page_title="NSE Tracker", layout="wide")
-st.title("📊 Client 2-Year Historical Tracker")
+st.title("📊 VSPARTANS 2-Year Historical Tracker")
 
-client_name = st.text_input("Enter client name keyword:", value="VSPARTANS").strip()
+# Hardcoded default client name
+client_name = "VSPARTANS"
 
 if st.button("Fetch Data", type="primary"):
-    if not client_name:
-        st.error("Please enter a client name.")
-        st.stop()
-        
     today = datetime.now()
     all_bulk, all_block = [], []
     
@@ -242,7 +237,7 @@ if st.button("Fetch Data", type="primary"):
         except Exception as e:
             st.warning(f"Bulk data warning for {from_str}: {e}")
             
-        time.sleep(1) # Reduced to prevent timeout
+        time.sleep(1)
         
         try:
             df_bl = capital_market.block_deals_data(from_date=from_str, to_date=to_str)
@@ -269,9 +264,8 @@ if st.button("Fetch Data", type="primary"):
         df_block_merged = process_df(df_block_merged)
         
         total_trades = len(df_bulk_merged) + len(df_block_merged)
-        st.success(f"✅ Success! Found {total_trades} trades for '{client_name.upper()}'")
+        st.success(f"✅ Success! Found {total_trades} trades for '{client_name}'")
         
-        # Displaying styled dataframes
         if not df_bulk_merged.empty:
             st.subheader("Bulk Deals")
             st.dataframe(style_dataframe(df_bulk_merged), use_container_width=True, hide_index=True)
@@ -280,9 +274,8 @@ if st.button("Fetch Data", type="primary"):
             st.subheader("Block Deals")
             st.dataframe(style_dataframe(df_block_merged), use_container_width=True, hide_index=True)
         
-        sanitized_name = "".join([c for c in client_name if c.isalnum() or c in (' ', '_')]).strip().replace(' ', '_')
-        file_name = f"{sanitized_name}_2_Years.xlsx"
-        excel_buffer = get_excel_buffer(df_bulk_merged, df_block_merged, f"Client: {client_name.upper()}", "2 Year History")
+        file_name = f"{client_name}_2_Years.xlsx"
+        excel_buffer = get_excel_buffer(df_bulk_merged, df_block_merged, f"Client: {client_name}", "2 Year History")
         
         st.download_button(
             label="📥 Download Excel Report",
