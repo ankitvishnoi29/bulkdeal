@@ -1,3 +1,5 @@
+import streamlit as st
+import io
 import time
 from datetime import datetime, timedelta
 import pandas as pd
@@ -8,11 +10,10 @@ from openpyxl.utils import get_column_letter
 try:
     from nselib import capital_market
 except ImportError:
-    print("Error: nselib is not installed. Please install it using: pip install nselib")
-    exit()
+    st.error("nselib is not installed. Check your requirements.txt")
+    st.stop()
 
-# --- HELPER FUNCTIONS ---
-
+# --- EXCEL FORMATTING ---
 def format_excel_sheet(ws, df_sheet, title_text, default_days_or_info):
     font_family = "Segoe UI"
     title_font = Font(name=font_family, size=15, bold=True, color="1B365D")
@@ -23,25 +24,16 @@ def format_excel_sheet(ws, df_sheet, title_text, default_days_or_info):
     header_fill = PatternFill(start_color="1B365D", end_color="1B365D", fill_type="solid")
     zebra_fill = PatternFill(start_color="F9FAFB", end_color="F9FAFB", fill_type="solid")
     white_fill = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
-    
     buy_fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
     buy_font = Font(name=font_family, size=10, bold=True, color="006100")
-    
     sell_fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
     sell_font = Font(name=font_family, size=10, bold=True, color="9C0006")
     
-    thin_border = Border(
-        left=Side(style='thin', color='E0E0E0'), right=Side(style='thin', color='E0E0E0'),
-        top=Side(style='thin', color='E0E0E0'), bottom=Side(style='thin', color='E0E0E0')
-    )
-    
-    double_bottom_border = Border(
-        top=Side(style='thin', color='1B365D'), bottom=Side(style='double', color='1B365D')
-    )
+    thin_border = Border(left=Side(style='thin', color='E0E0E0'), right=Side(style='thin', color='E0E0E0'),
+                         top=Side(style='thin', color='E0E0E0'), bottom=Side(style='thin', color='E0E0E0'))
+    double_bottom_border = Border(top=Side(style='thin', color='1B365D'), bottom=Side(style='double', color='1B365D'))
 
     ws.views.sheetView[0].showGridLines = True
-    
-    # Title Row
     ws.merge_cells("A1:I1")
     title_cell = ws["A1"]
     title_cell.value = f"{title_text} ({default_days_or_info})"
@@ -50,11 +42,7 @@ def format_excel_sheet(ws, df_sheet, title_text, default_days_or_info):
     ws.row_dimensions[1].height = 40
     ws.row_dimensions[2].height = 10
     
-    # Headers
-    headers = [
-        "Date", "Symbol", "Company Name", "Client Name", 
-        "Deal Type", "Quantity", "Price (₹)", "Trade Value (₹)", "Remarks"
-    ]
+    headers = ["Date", "Symbol", "Company Name", "Client Name", "Deal Type", "Quantity", "Price (₹)", "Trade Value (₹)", "Remarks"]
     
     for col_idx, h in enumerate(headers, 1):
         cell = ws.cell(row=3, column=col_idx)
@@ -66,11 +54,9 @@ def format_excel_sheet(ws, df_sheet, title_text, default_days_or_info):
         
     ws.row_dimensions[3].height = 25
     
-    # Write Rows
     row_idx = 4
     for _, row in df_sheet.iterrows():
         ws.row_dimensions[row_idx].height = 20
-        
         vals = [
             row.get('Date', ''), row.get('Symbol', ''), row.get('SecurityName', ''),
             row.get('ClientName', ''), row.get('Buy/Sell', ''), row.get('QuantityTraded', 0),
@@ -94,12 +80,8 @@ def format_excel_sheet(ws, df_sheet, title_text, default_days_or_info):
             elif col_idx in [3, 4, 9]: cell.alignment = Alignment(horizontal="left", vertical="center")
             elif col_idx == 5:
                 cell.alignment = Alignment(horizontal="center", vertical="center")
-                if is_buy:
-                    cell.fill = buy_fill
-                    cell.font = buy_font
-                else:
-                    cell.fill = sell_fill
-                    cell.font = sell_font
+                cell.fill = buy_fill if is_buy else sell_fill
+                cell.font = buy_font if is_buy else sell_font
             elif col_idx == 6:
                 cell.alignment = Alignment(horizontal="right", vertical="center")
                 cell.number_format = '#,##,##0'
@@ -109,10 +91,8 @@ def format_excel_sheet(ws, df_sheet, title_text, default_days_or_info):
             elif col_idx == 8:
                 cell.alignment = Alignment(horizontal="right", vertical="center")
                 cell.number_format = '#,##,##,##0.00'
-                
         row_idx += 1
         
-    # Total Row
     ws.row_dimensions[row_idx].height = 24
     total_label_cell = ws.cell(row=row_idx, column=1)
     total_label_cell.value = "Total"
@@ -146,20 +126,6 @@ def format_excel_sheet(ws, df_sheet, title_text, default_days_or_info):
     
     ws.cell(row=row_idx, column=9).border = double_bottom_border
     
-    # Auto-fit Columns
-    for col in ws.columns:
-        max_len = 0
-        col_letter = get_column_letter(col[0].column)
-        for cell in col:
-            if cell.row == 1: continue
-            val_str = str(cell.value or '')
-            if cell.number_format and ('#,##' in cell.number_format):
-                max_len = max(max_len, len(val_str) + 6)
-            else:
-                max_len = max(max_len, len(val_str))
-        ws.column_dimensions[col_letter].width = max(max_len + 3, 12)
-        
-    # Manual Adjustments
     ws.column_dimensions['A'].width = 13  
     ws.column_dimensions['B'].width = 14  
     ws.column_dimensions['C'].width = 30  
@@ -170,9 +136,9 @@ def format_excel_sheet(ws, df_sheet, title_text, default_days_or_info):
     ws.column_dimensions['H'].width = 22  
     ws.column_dimensions['I'].width = 15  
 
+# --- DATA PROCESSING ---
 def process_df(df):
     if df.empty: return df
-    
     df.columns = [c.strip() for c in df.columns]
     
     def parse_date(d_str):
@@ -191,7 +157,6 @@ def process_df(df):
         df = df.sort_values(by=['Date', 'Symbol'], ascending=[False, True])
         
     df = df.drop(columns=['ParsedDate'])
-    
     df['QuantityTraded'] = pd.to_numeric(df['QuantityTraded'].astype(str).str.replace(',', ''), errors='coerce').fillna(0).astype(int)
     df['TradePrice/Wght.Avg.Price'] = pd.to_numeric(df['TradePrice/Wght.Avg.Price'].astype(str).str.replace(',', ''), errors='coerce').fillna(0.0)
     df['TradeValue_INR'] = df['QuantityTraded'] * df['TradePrice/Wght.Avg.Price']
@@ -199,16 +164,41 @@ def process_df(df):
     
     return df
 
-
-# --- MAIN AUTOMATION SCRIPT ---
-
-def run_automated_tracker():
-    client_name = "VSPARTANS"
-    print(f"Initializing 2-Year Tracker for Client: {client_name}")
+def get_excel_buffer(df_bulk, df_block, title_prefix, sub_title):
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active) 
     
+    if not df_bulk.empty:
+        ws_bulk = wb.create_sheet("Bulk Deals")
+        format_excel_sheet(ws_bulk, df_bulk, f"{title_prefix} Bulk Deals", sub_title)
+        
+    if not df_block.empty:
+        ws_block = wb.create_sheet("Block Deals")
+        format_excel_sheet(ws_block, df_block, f"{title_prefix} Block Deals", sub_title)
+        
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+    return buffer
+
+# --- STREAMLIT UI ---
+st.set_page_config(page_title="NSE Tracker", layout="wide")
+st.title("📊 Client 2-Year Historical Tracker")
+
+client_name = st.text_input("Enter client name keyword:", value="VSPARTANS").strip()
+
+if st.button("Fetch Data", type="primary"):
+    if not client_name:
+        st.error("Please enter a client name.")
+        st.stop()
+        
     today = datetime.now()
     all_bulk, all_block = [], []
     
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    # 2 Year Loop
     for i in range(2):
         start_days = i * 365
         end_days = (i + 1) * 365
@@ -217,9 +207,8 @@ def run_automated_tracker():
         from_str = from_dt.strftime("%d-%m-%Y")
         to_str = to_dt.strftime("%d-%m-%Y")
         
-        print(f"Fetching Year {i+1}/2 ({from_str} to {to_str})...")
+        status_text.info(f"📡 Fetching data for Year {i+1} ({from_str} to {to_str}). Please wait...")
         
-        # Bulk
         try:
             df_b = capital_market.bulk_deal_data(from_date=from_str, to_date=to_str)
             if not df_b.empty:
@@ -227,9 +216,10 @@ def run_automated_tracker():
                 filtered = df_b[df_b['ClientName'].astype(str).str.contains(client_name, case=False, na=False)]
                 if not filtered.empty: all_bulk.append(filtered)
         except Exception as e:
-            print(f"  Warning: Failed to fetch Bulk data for {from_str} to {to_str}: {e}")
+            st.warning(f"Bulk data warning for {from_str}: {e}")
             
-        # Block
+        time.sleep(1) # Reduced to 1 second to prevent Streamlit Cloud timeout
+        
         try:
             df_bl = capital_market.block_deals_data(from_date=from_str, to_date=to_str)
             if not df_bl.empty:
@@ -237,43 +227,42 @@ def run_automated_tracker():
                 filtered = df_bl[df_bl['ClientName'].astype(str).str.contains(client_name, case=False, na=False)]
                 if not filtered.empty: all_block.append(filtered)
         except Exception as e:
-            print(f"  Warning: Failed to fetch Block data for {from_str} to {to_str}: {e}")
+            st.warning(f"Block data warning for {from_str}: {e}")
             
-        # Sleep to prevent getting blocked by NSE API
-        time.sleep(2)
+        progress_bar.progress((i + 1) * 50)
+        time.sleep(1) 
         
-    # Merge and Process
-    print("\nProcessing aggregated data...")
+    status_text.empty()
+    progress_bar.empty()
+    
     df_bulk_merged = pd.concat(all_bulk, ignore_index=True) if all_bulk else pd.DataFrame()
     df_block_merged = pd.concat(all_block, ignore_index=True) if all_block else pd.DataFrame()
     
     if df_bulk_merged.empty and df_block_merged.empty:
-        print(f"No historical data found for client: '{client_name}'. Program exiting.")
-        return
+        st.error(f"No records found for client: '{client_name}'.")
+    else:
+        df_bulk_merged = process_df(df_bulk_merged)
+        df_block_merged = process_df(df_block_merged)
         
-    df_bulk_merged = process_df(df_bulk_merged)
-    df_block_merged = process_df(df_block_merged)
-    
-    total_trades = len(df_bulk_merged) + len(df_block_merged)
-    print(f"Success! Found {total_trades} total trades.")
-    
-    # Generate and Save Excel locally
-    wb = openpyxl.Workbook()
-    wb.remove(wb.active) 
-    
-    sub_title = "2 Year History"
-    file_name = f"{client_name}_2_Year_History.xlsx"
-    
-    if not df_bulk_merged.empty:
-        ws_bulk = wb.create_sheet("Bulk Deals")
-        format_excel_sheet(ws_bulk, df_bulk_merged, f"Client: {client_name.upper()} Bulk Deals", sub_title)
+        total_trades = len(df_bulk_merged) + len(df_block_merged)
+        st.success(f"✅ Success! Found {total_trades} trades for '{client_name.upper()}'")
         
-    if not df_block_merged.empty:
-        ws_block = wb.create_sheet("Block Deals")
-        format_excel_sheet(ws_block, df_block_merged, f"Client: {client_name.upper()} Block Deals", sub_title)
+        if not df_bulk_merged.empty:
+            st.subheader("Bulk Deals")
+            st.dataframe(df_bulk_merged, use_container_width=True)
+            
+        if not df_block_merged.empty:
+            st.subheader("Block Deals")
+            st.dataframe(df_block_merged, use_container_width=True)
         
-    wb.save(file_name)
-    print(f"File saved successfully as: {file_name} in your current directory.")
-
-if __name__ == "__main__":
-    run_automated_tracker()
+        sanitized_name = "".join([c for c in client_name if c.isalnum() or c in (' ', '_')]).strip().replace(' ', '_')
+        file_name = f"{sanitized_name}_2_Years.xlsx"
+        excel_buffer = get_excel_buffer(df_bulk_merged, df_block_merged, f"Client: {client_name.upper()}", "2 Year History")
+        
+        st.download_button(
+            label="📥 Download Excel Report",
+            data=excel_buffer,
+            file_name=file_name,
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            type="primary"
+        )
